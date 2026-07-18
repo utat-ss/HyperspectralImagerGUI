@@ -74,7 +74,7 @@ if __name__ == '__main__':
         camera.image_poll_timeout_ms = 0                 # No blocking when polling for image, used for get_pending_frame_or_null()
         camera.exposure_time_us = 100000                 # Set exposure time in microseconds
         camera.frames_per_trigger_zero_for_unlimited = 1 # One frame per trigger
-        camera.arm(1)                                    # Allocate buffer for 1 frame and prepare camera for acquisition
+        camera.arm(2)                                    # Allocate buffer for 1 frame and prepare camera for acquisition
 
         # Capture image
         camera.issue_software_trigger()
@@ -95,8 +95,10 @@ if __name__ == '__main__':
         # So a deep copy is needed for long-term use (not necessary here, but still safe)
         image_data = np.copy(frame.image_buffer)
 
-        img = Image.fromarray(image_data)
-        img.save('thorlabs.png')
+        img8 = ((image_data.astype(np.float32) - image_data.min()) /
+                (image_data.max() - image_data.min()) * 255).astype(np.uint8)
+
+        Image.fromarray(img8).save("thorlabs_stretched.png")
         print('One image saved!')
 
     finally: # Clean-up
