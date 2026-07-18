@@ -15,6 +15,10 @@ if __name__ == '__main__':
         # Used to discover + create camera objects
         tl_factory = pylon.TlFactory.GetInstance()
 
+        converter = pylon.ImageFormatConverter()
+        converter.OutputPixelFormat = pylon.PixelType_RGB8packed
+        converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
+
         # Find all connected Basler cameras (should only be one)
         devices = tl_factory.EnumerateDevices()
 
@@ -33,7 +37,7 @@ if __name__ == '__main__':
         camera.TriggerSource.SetValue('Software')
 
         # Capture image
-        camera.StartGrabbing(maxImages=1, strategy=pylon.GrabStrategy_OneByOne)
+        camera.StartGrabbing()
         camera.ExecuteSoftwareTrigger()
 
         timeout_ms = 5000
@@ -41,7 +45,8 @@ if __name__ == '__main__':
 
         try:
             if grab_result.GrabSucceeded():
-                image_data = grab_result.Array.copy()
+                converted = converter.Convert(grab_result)
+                image_data = converted.GetArray()
 
                 img = Image.fromarray(image_data)
                 img.save('basler.png')
