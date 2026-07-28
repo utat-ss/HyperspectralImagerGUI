@@ -25,7 +25,7 @@ def configure_path():
 
     """
     is_64bits = sys.maxsize > 2**32
-    relative_path_to_dlls = os.sep + 'dlls' + os.sep
+    relative_path_to_dlls = os.sep + '..' + os.sep + 'dlls' + os.sep
 
     if is_64bits:
         relative_path_to_dlls += '64_lib'
