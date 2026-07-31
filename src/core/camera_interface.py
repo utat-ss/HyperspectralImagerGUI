@@ -41,6 +41,19 @@ class CameraInterface(ABC):
         pass
 
     @abstractmethod
+    def get_bit_depth(self) -> int:
+        """
+        Return the sensor's native ADC bit depth (e.g. 12 for a 12-bit
+        sensor). Frames from get_frame()/start_live() may be delivered in
+        a wider container dtype (e.g. uint16) than this -- use this value,
+        not the container dtype's range, to normalize/stretch pixel
+        values for display.
+
+        Raises RuntimeError if the camera is not connected.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def get_frame(self) -> Optional[np.ndarray]:
         """Return the latest 2D frame as a numpy array, or None if unavailable."""
         raise NotImplementedError
