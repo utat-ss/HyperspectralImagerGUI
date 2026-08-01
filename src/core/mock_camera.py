@@ -15,7 +15,7 @@ poll loop past its ~100 Hz idle rate.
 
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 
@@ -28,6 +28,12 @@ class MockCamera(CameraInterface):
     _BIT_DEPTH = 12
     _MAX_VALUE = (1 << _BIT_DEPTH) - 1  # 4095
     _REFERENCE_EXPOSURE_US = 100_000.0  # exposure at which the pattern hits nominal (unclipped) brightness
+
+    # Plausible CCD-ish bounds -- not real hardware limits, but real
+    # enough to exercise the same clamp-and-report contract ThorlabsCamera
+    # has against actual firmware, without needing hardware to do it.
+    _EXPOSURE_RANGE_US = (10.0, 1_000_000.0)  # 10us .. 1s
+    _GAIN_RANGE = (0.0, 10.0)  # brightness multiplier
 
     # How many frame-periods of backlog the poll loop will race to catch
     # up on after a stall (a slow on_frame callback, a debugger pause)
@@ -80,14 +86,31 @@ class MockCamera(CameraInterface):
         """
         return self._live_thread is not None and self._live_thread.is_alive()
 
-    def set_exposure_us(self, exposure_us: float) -> None:
-        self._exposure_us = max(10.0, float(exposure_us))
+    def set_exposure_us(self, exposure_us: float) -> float:
+        if not self.is_connected():
+            raise RuntimeError("Cannot set exposure: camera is not connected")
+        lo, hi = self._EXPOSURE_RANGE_US
+        self._exposure_us = min(max(float(exposure_us), lo), hi)
+        return self._exposure_us
 
     def get_exposure_us(self) -> float:
         return self._exposure_us
 
-    def set_gain(self, gain: float) -> None:
-        self._gain = max(0.0, float(gain))
+    def get_exposure_range_us(self) -> Tuple[float, float]:
+        return self._EXPOSURE_RANGE_US
+
+    def set_gain(self, gain: float) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot set gain: camera is not connected")
+        lo, hi = self._GAIN_RANGE
+        self._gain = min(max(float(gain), lo), hi)
+        return self._gain
+
+    def get_gain(self) -> Optional[float]:
+        return self._gain
+
+    def get_gain_range(self) -> Optional[Tuple[float, float]]:
+        return self._GAIN_RANGE
 
     def get_bit_depth(self) -> int:
         if not self.is_connected():

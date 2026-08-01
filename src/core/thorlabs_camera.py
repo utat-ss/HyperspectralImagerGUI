@@ -9,7 +9,7 @@ Docs: Scientific Camera Interfaces\\Thorlabs_Camera_Python_API_Reference.pdf
 import threading
 import time
 from contextlib import contextmanager
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator, Optional, Tuple
 
 import numpy as np
 
@@ -80,14 +80,62 @@ class ThorlabsCamera(CameraInterface):
         """
         return self._live_thread is not None and self._live_thread.is_alive()
 
-    def set_exposure_us(self, exposure_us: float) -> None:
+    def set_exposure_us(self, exposure_us: float) -> float:
+        """
+        Write exposure_time_us and return what the camera actually holds
+        afterward. The TSI SDK clamps out-of-range requests to
+        exposure_time_range_us silently (it does not raise), so the read-
+        back is the only way to know whether the request was honored --
+        do not assume the write applied exactly.
+
+        IMPORTANT: the vendored SDK's own docstring on exposure_time_us
+        recommends waiting at least 300ms after issue_software_trigger()
+        before changing exposure. Calling this within that window (e.g.
+        from inside a live-view callback) may still write successfully,
+        but the SDK does not document what get_exposure_time() returns
+        during that window -- the read-back likely reflects the register
+        we just wrote, not necessarily the exposure actually governing a
+        frame that was already mid-acquisition or already queued. Treat a
+        read-back taken shortly after a trigger as unverified against the
+        camera's real state, not as proof the change is visible in the
+        next delivered frame. Needs hardware verification.
+        """
+        if not self.is_connected():
+            raise RuntimeError("Cannot set exposure: camera is not connected")
         self._cam.exposure_time_us = int(exposure_us)
+        return float(self._cam.exposure_time_us)
 
     def get_exposure_us(self) -> float:
         return float(self._cam.exposure_time_us)
 
-    def set_gain(self, gain: float) -> None:
+    def get_exposure_range_us(self) -> Tuple[float, float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read exposure range: camera is not connected")
+        exposure_range = self._cam.exposure_time_range_us
+        return (float(exposure_range.min), float(exposure_range.max))
+
+    def set_gain(self, gain: float) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot set gain: camera is not connected")
+        if self._cam.gain_range.max == 0:
+            return None  # gain_range.max == 0 means this camera/unit does not support gain
         self._cam.gain = int(gain)
+        return float(self._cam.gain)
+
+    def get_gain(self) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read gain: camera is not connected")
+        if self._cam.gain_range.max == 0:
+            return None
+        return float(self._cam.gain)
+
+    def get_gain_range(self) -> Optional[Tuple[float, float]]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read gain range: camera is not connected")
+        gain_range = self._cam.gain_range
+        if gain_range.max == 0:
+            return None
+        return (float(gain_range.min), float(gain_range.max))
 
     def get_bit_depth(self) -> int:
         if not self.is_connected():

@@ -5,7 +5,7 @@ hyperspectral demonstrator's CameraInterface.
 """
 
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 import numpy as np
 
 
@@ -28,17 +28,57 @@ class CameraInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def set_exposure_us(self, exposure_us: float) -> None:
-        """Set exposure time in microseconds."""
+    def set_exposure_us(self, exposure_us: float) -> float:
+        """
+        Request an exposure time in microseconds. The backend may not be
+        able to apply the request exactly -- it may clamp to whatever
+        get_exposure_range_us() reports, or ignore it entirely on
+        hardware that doesn't actually support the change.
+
+        Returns the exposure time the camera actually holds after the
+        attempt. Compare it against the requested value to detect
+        clamping instead of assuming the request took effect.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def get_exposure_us(self) -> float:
         raise NotImplementedError
 
-    def set_gain(self, gain: float) -> None:
-        """Optional. Not all backends support gain control."""
-        pass
+    @abstractmethod
+    def get_exposure_range_us(self) -> Tuple[float, float]:
+        """
+        Return the (min, max) exposure time in microseconds the camera
+        will accept, so a caller (e.g. a GUI slider) can bound a control
+        up front instead of discovering limits by trial.
+        """
+        raise NotImplementedError
+
+    def set_gain(self, gain: float) -> Optional[float]:
+        """
+        Optional. Not all backends support gain control.
+
+        Returns the gain the camera actually holds after the attempt
+        (which may differ from the request -- see get_gain_range()), or
+        None if this backend has no gain control at all, in which case
+        nothing was changed. The default implementation is the "no gain
+        control" case: it returns None without touching anything.
+        """
+        return None
+
+    def get_gain(self) -> Optional[float]:
+        """
+        Optional counterpart to set_gain(). Returns None if this backend
+        has no gain control.
+        """
+        return None
+
+    def get_gain_range(self) -> Optional[Tuple[float, float]]:
+        """
+        Optional. Returns the (min, max) gain the camera will accept, or
+        None if this backend has no gain control.
+        """
+        return None
 
     @abstractmethod
     def get_bit_depth(self) -> int:
