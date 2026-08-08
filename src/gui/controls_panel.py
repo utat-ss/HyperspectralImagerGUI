@@ -19,6 +19,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.camera_interface import CameraInterface
+from gui.camera_factory import AVAILABLE_BACKENDS
 
 _DEBOUNCE_MS = 100
 # Gain ranges are typically much narrower than exposure ranges; QSlider
@@ -43,6 +45,9 @@ class ControlsPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._cam: Optional[CameraInterface] = None
+
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItems(AVAILABLE_BACKENDS)
 
         self.connect_button = QPushButton("Connect")
         self.connect_button.setCheckable(True)
@@ -88,16 +93,28 @@ class ControlsPanel(QWidget):
         buttons_layout.addWidget(self.live_button)
 
         layout = QVBoxLayout(self)
+        layout.addWidget(self.backend_combo)
         layout.addLayout(buttons_layout)
         layout.addWidget(exposure_group)
         layout.addWidget(self.gain_group)
         layout.addStretch(1)
+
+    # -- backend selection --
+
+    def current_backend(self) -> str:
+        return self.backend_combo.currentText()
+
+    def set_current_backend(self, kind: str) -> None:
+        index = self.backend_combo.findText(kind)
+        if index >= 0:
+            self.backend_combo.setCurrentIndex(index)
 
     # -- lifecycle, driven by MainWindow --
 
     def configure_for_camera(self, cam: CameraInterface) -> None:
         """Call once right after connecting: populate ranges/current values from what the camera reports."""
         self._cam = cam
+        self.backend_combo.setEnabled(False)
         self.connect_button.setText("Disconnect")
 
         lo, hi = cam.get_exposure_range_us()
@@ -124,6 +141,7 @@ class ControlsPanel(QWidget):
     def reset(self) -> None:
         """Call on init and on disconnect: clear back to the disconnected state."""
         self._cam = None
+        self.backend_combo.setEnabled(True)
         self.connect_button.setText("Connect")
 
         self.live_button.blockSignals(True)

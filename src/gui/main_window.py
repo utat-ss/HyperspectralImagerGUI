@@ -5,8 +5,8 @@ camera_factory.open_backend, a context manager) and the CameraSession
 that drives it.
 
 Nothing in this file checks what kind of CameraInterface it has -- the
-only place backend selection happens is the string passed to
-camera_factory.open_backend().
+only place backend selection happens is the string read from
+ControlsPanel's backend dropdown and passed to camera_factory.open_backend().
 """
 
 from typing import Optional
@@ -29,7 +29,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Hyperspectral Imager")
 
-        self._backend_kind = backend
         # The open_backend() context manager is driven manually
         # (__enter__/__exit__) rather than with `with`, because "connected"
         # spans multiple GUI events (a connect click ... a later disconnect
@@ -41,6 +40,7 @@ class MainWindow(QMainWindow):
         self.image_view = LiveImageView()
         self.spectrum_view = SpectrumView()
         self.controls = ControlsPanel()
+        self.controls.set_current_backend(backend)
 
         central = QWidget()
         layout = QHBoxLayout(central)
@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
             self._disconnect()
 
     def _connect(self) -> None:
-        self._backend_cm = camera_factory.open_backend(self._backend_kind)
+        self._backend_cm = camera_factory.open_backend(self.controls.current_backend())
         self._cam = self._backend_cm.__enter__()
 
         self._session = CameraSession(self._cam, parent=self)
