@@ -60,6 +60,9 @@ if __name__ == '__main__':
     print('--- connect and configure ---')
     camera.connect()
     check('is_connected after connect', camera.is_connected(), True)
+    expect_error('double connect rejected', camera.connect)
+    check('still connected after double-connect rejection',
+          camera.is_connected(), True)
     print(f'[info] model: {camera.name}, bit depth: {camera.get_bit_depth()}')
 
     camera.set_exposure_us(25000)

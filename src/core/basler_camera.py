@@ -37,8 +37,12 @@ class BaslerCamera(CameraInterface):
     process-wide TlFactory fetched via GetInstance(), so there is no SDK
     object for the caller to own or dispose.
 
-    color=True (default) delivers HxWx3 uint8 RGB; color=False delivers
-    HxW at the sensor's native bit depth.
+    Constructor options:
+      serial        pick a specific camera by serial number; None = first found
+      pixel_format  force a PixelFormat string (e.g. "Mono8"); None = choose
+                    automatically from color=
+      color=True    HxWx3 uint8 RGB (default)
+      color=False   HxW at the sensor's native bit depth
     """
 
     name = "Basler"
@@ -80,6 +84,11 @@ class BaslerCamera(CameraInterface):
 
     def connect(self) -> bool:
         """Open the first matching Basler and configure its pixel format."""
+        if self.is_connected():
+            raise RuntimeError(
+                "Camera is already connected; call disconnect() before connect()"
+            )
+
         tl_factory = pylon.TlFactory.GetInstance()
         devices = tl_factory.EnumerateDevices()
         if not devices:
