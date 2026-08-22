@@ -70,6 +70,8 @@ class WebcamCamera(CameraInterface):
         self.live_error: Optional[Exception] = None
 
     def connect(self) -> bool:
+        if self.is_connected():
+            raise RuntimeError("Cannot connect: camera is already connected")
         self._cap = cv2.VideoCapture(self._index)
         if not self._cap.isOpened():
             self._cap.release()

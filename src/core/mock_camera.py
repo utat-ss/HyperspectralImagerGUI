@@ -68,6 +68,8 @@ class MockCamera(CameraInterface):
     # -- CameraInterface --
 
     def connect(self) -> bool:
+        if self._connected:
+            raise RuntimeError("Cannot connect: camera is already connected")
         self._connected = True
         return True
 

@@ -52,6 +52,8 @@ class ThorlabsCamera(CameraInterface):
         self.live_error: Optional[Exception] = None
 
     def connect(self) -> bool:
+        if self.is_connected():
+            raise RuntimeError("Cannot connect: camera is already connected")
         available = self._sdk.discover_available_cameras()
         if not available:
             raise RuntimeError("No available Thorlabs cameras found")
@@ -82,11 +84,14 @@ class ThorlabsCamera(CameraInterface):
 
     def set_exposure_us(self, exposure_us: float) -> float:
         """
-        Write exposure_time_us and return what the camera actually holds
-        afterward. The TSI SDK clamps out-of-range requests to
-        exposure_time_range_us silently (it does not raise), so the read-
-        back is the only way to know whether the request was honored --
-        do not assume the write applied exactly.
+        Clamp the request into exposure_time_range_us ourselves before
+        writing, then return what exposure_time_us reads back afterward.
+
+        The vendored SDK does not document what happens on an
+        out-of-range write -- clamp, ignore, or raise -- so we don't rely
+        on it to clamp; bounds-check here instead. The read-back is kept
+        on top of that as the only way to know whether the (now in-range)
+        write was actually honored by the device.
 
         IMPORTANT: the vendored SDK's own docstring on exposure_time_us
         recommends waiting at least 300ms after issue_software_trigger()
@@ -102,7 +107,9 @@ class ThorlabsCamera(CameraInterface):
         """
         if not self.is_connected():
             raise RuntimeError("Cannot set exposure: camera is not connected")
-        self._cam.exposure_time_us = int(exposure_us)
+        lo, hi = self.get_exposure_range_us()
+        clamped_us = min(max(float(exposure_us), lo), hi)
+        self._cam.exposure_time_us = int(clamped_us)
         return float(self._cam.exposure_time_us)
 
     def get_exposure_us(self) -> float:
