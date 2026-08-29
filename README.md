@@ -31,3 +31,9 @@ The Python wrapper documentation for pylon is limited; however, the C/C++ API do
 
 ## Testing
 Run the camera test scripts separately to verify each camera connection.
+
+## Running without hardware
+
+Run `python src/gui/app.py webcam` to launch against any connected webcam via
+OpenCV, or `python src/gui/app.py mock` for synthetic frames — both let you
+develop and test the GUI with no scientific camera attached.
