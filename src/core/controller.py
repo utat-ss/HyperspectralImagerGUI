@@ -1,9 +1,25 @@
 """
-Application controller: GUI-facing API over cameras and measurement storage.
+Application controller: GUI-facing intents over cameras and measurement storage.
 
-The GUI should call these methods instead of talking to CameraInterface or
-MeasurementStorage directly. This module coordinates those backends; it does
-not implement camera drivers or the on-disk measurement format.
+The GUI names what the user wants. This class decides which backend objects
+to call. The GUI should not import CameraInterface or MeasurementStorage; it
+only knows "basler" / "thorlabs" and these methods.
+
+Rule: if a GUI action needs backend work, it belongs here. Simple methods
+are one-liners (connect -> camera.connect()). Coordinated methods talk to
+more than one object (capture_frame -> camera + measurement + disk).
+
+Method groups (foundation):
+
+- Session: create_measurement, load_measurement, measurement
+- Cameras (thin): connect, disconnect, exposure, gain, live
+- Coordinated: capture_frame (grab + save frame + record settings)
+
+This is a small working foundation, not the full app. Add a method on this
+same class when a GUI action exists and a backend already exists (for
+example thumbnail, calibration file, datacube, processed product). Scan /
+stage / processing wait until those backends exist. Widget layout and Qt
+signals stay in the GUI.
 
 Typical GUI flow (no widgets here)::
 
@@ -66,7 +82,7 @@ class ApplicationController:
         basler: Optional[CameraInterface] = None,
         thorlabs: Optional[CameraInterface] = None,
     ):
-        self.storage = MeasurementStorage(storage_root)
+        self._storage = MeasurementStorage(storage_root)
         self._cameras: dict[str, Optional[CameraInterface]] = {
             _BASLER: basler,
             _THORLABS: thorlabs if thorlabs is not None else _default_thorlabs(),
@@ -89,7 +105,7 @@ class ApplicationController:
         comments: str = "",
     ) -> Measurement:
         """Create a new on-disk measurement folder and make it the active session."""
-        self._measurement = self.storage.create(
+        self._measurement = self._storage.create(
             measurement_id=measurement_id,
             name=name,
             comments=comments,
@@ -98,7 +114,7 @@ class ApplicationController:
 
     def load_measurement(self, measurement_id: str) -> Measurement:
         """Load an existing measurement folder and make it the active session."""
-        self._measurement = self.storage.load(measurement_id)
+        self._measurement = self._storage.load(measurement_id)
         return self._measurement
 
     # ------------------------------------------------------------------
@@ -157,11 +173,11 @@ class ApplicationController:
         if frame is None:
             raise ControllerError(f"{key} camera returned no frame")
 
-        relative = self.storage.add_raw_frame(
+        relative = self._storage.add_raw_frame(
             measurement, key, frame, save_metadata=False
         )
         self._record_capture_config(measurement, key, cam)
-        self.storage.save(measurement)
+        self._storage.save(measurement)
         return CaptureResult(
             camera=key,
             frame=frame,
@@ -183,7 +199,7 @@ class ApplicationController:
     def measurement_dir(self) -> Path:
         """Absolute folder of the active measurement."""
         measurement = self._require_measurement()
-        return self.storage.measurement_dir(measurement.id)
+        return self._storage.measurement_dir(measurement.id)
 
     # ------------------------------------------------------------------
     # Internals
