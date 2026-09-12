@@ -144,6 +144,54 @@ class ThorlabsCamera(CameraInterface):
             return None
         return (float(gain_range.min), float(gain_range.max))
 
+    def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
+        """
+        Clamp into frame_rate_control_value_range and return the read-back,
+        or None if this camera model has no frame rate control.
+
+        Setting the value is not enough on its own: the SDK gates the
+        feature behind is_frame_rate_control_enabled, and with it off the
+        frame rate is whatever exposure and readout time happen to
+        produce. So enable it as part of honouring the request -- a caller
+        asking for a specific rate is asking for it to be controlled.
+        """
+        if not self.is_connected():
+            raise RuntimeError("Cannot set frame rate: camera is not connected")
+        frame_rate_range = self._frame_rate_range()
+        if frame_rate_range is None:
+            return None
+        lo, hi = frame_rate_range
+        if not self._cam.is_frame_rate_control_enabled:
+            self._cam.is_frame_rate_control_enabled = True
+        self._cam.frame_rate_control_value = min(max(float(frame_rate_hz), lo), hi)
+        return float(self._cam.frame_rate_control_value)
+
+    def get_frame_rate_hz(self) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate: camera is not connected")
+        if self._frame_rate_range() is None:
+            return None
+        return float(self._cam.frame_rate_control_value)
+
+    def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate range: camera is not connected")
+        return self._frame_rate_range()
+
+    def _frame_rate_range(self) -> Optional[Tuple[float, float]]:
+        """
+        (min, max) fps, or None when the model has no frame rate control.
+
+        Per the SDK docs on frame_rate_control_value_range, a maximum of
+        zero is how "this model does not support it" is reported -- the
+        same max == 0 idiom gain_range uses above, not a separate
+        capability call.
+        """
+        frame_rate_range = self._cam.frame_rate_control_value_range
+        if frame_rate_range.max == 0:
+            return None
+        return (float(frame_rate_range.min), float(frame_rate_range.max))
+
     def get_bit_depth(self) -> int:
         if not self.is_connected():
             raise RuntimeError("Cannot read bit depth: camera is not connected")

@@ -11,7 +11,7 @@ Docs: https://docs.baslerweb.com/pylonapi/
 
 import re
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 from pypylon import pylon
@@ -27,6 +27,10 @@ _UNPACKED_BAYER = re.compile(r"^Bayer[A-Z]{2}(\d+)$")
 # Newer cameras expose ExposureTime, older GigE ones ExposureTimeAbs.
 # Both are in microseconds.
 _EXPOSURE_FEATURES = ("ExposureTime", "ExposureTimeAbs")
+
+# Same split as exposure: newer cameras expose AcquisitionFrameRate, older
+# GigE ones AcquisitionFrameRateAbs. Both are in frames per second.
+_FRAME_RATE_FEATURES = ("AcquisitionFrameRate", "AcquisitionFrameRateAbs")
 
 
 class BaslerCamera(CameraInterface):
@@ -139,29 +143,105 @@ class BaslerCamera(CameraInterface):
     # Settings
     # ------------------------------------------------------------------
 
-    def set_exposure_us(self, exposure_us: float) -> None:
+    def set_exposure_us(self, exposure_us: float) -> float:
+        """
+        Clamp into the node's own range, then return the read-back.
+
+        Returns what the camera actually holds afterwards, per
+        CameraInterface -- a caller compares it against the request to
+        detect clamping. _set_numeric() raises on an out-of-range write,
+        so the clamp has to happen here rather than being left to the
+        node; same reasoning as ThorlabsCamera.set_exposure_us().
+        """
         self._require_connected("set exposure")
         # Auto exposure overwrites or locks the manual value.
         self._disable_auto("ExposureAuto")
         exposure = self._require_feature(_EXPOSURE_FEATURES, "exposure time")
-        self._set_numeric(exposure, float(exposure_us), "exposure time (us)")
+        self._set_numeric(
+            exposure, self._fit_to_node(exposure, exposure_us), "exposure time (us)"
+        )
+        return float(exposure.GetValue())
 
     def get_exposure_us(self) -> float:
         self._require_connected("read exposure")
         exposure = self._require_feature(_EXPOSURE_FEATURES, "exposure time")
         return float(exposure.GetValue())
 
-    def set_gain(self, gain: float) -> None:
-        """Float dB on modern cameras, integer device units on older ones."""
-        self._require_connected("set gain")
-        self._disable_auto("GainAuto")
+    def get_exposure_range_us(self) -> Tuple[float, float]:
+        """
+        Range of the same node set_exposure_us()/get_exposure_us() use, so
+        a GUI slider bounded by this can never request something those two
+        would reject.
+        """
+        self._require_connected("read exposure range")
+        exposure = self._require_feature(_EXPOSURE_FEATURES, "exposure time")
+        return (float(exposure.GetMin()), float(exposure.GetMax()))
 
-        gain_node = self._find_feature("Gain")
-        if gain_node is not None:
-            self._set_numeric(gain_node, float(gain), "gain (dB)")
-            return
-        raw = self._require_feature(("GainRaw",), "gain")
-        self._set_numeric(raw, int(gain), "gain (raw device units)")
+    def set_gain(self, gain: float) -> Optional[float]:
+        """
+        Float dB on modern cameras, integer device units on older ones.
+
+        Returns the gain actually held afterwards, or None if this camera
+        exposes no gain feature at all -- None is the CameraInterface
+        signal for "no gain control", which is what makes the GUI hide the
+        gain slider, so it must not be returned by a camera that has one.
+        """
+        self._require_connected("set gain")
+        node, description = self._gain_feature()
+        if node is None:
+            return None
+        self._disable_auto("GainAuto")
+        self._set_numeric(node, self._fit_to_node(node, gain), description)
+        return float(node.GetValue())
+
+    def get_gain(self) -> Optional[float]:
+        self._require_connected("read gain")
+        node, _ = self._gain_feature()
+        return None if node is None else float(node.GetValue())
+
+    def get_gain_range(self) -> Optional[Tuple[float, float]]:
+        self._require_connected("read gain range")
+        node, _ = self._gain_feature()
+        if node is None:
+            return None
+        return (float(node.GetMin()), float(node.GetMax()))
+
+    def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
+        """
+        Clamp into the node's range and return the read-back, or None if
+        this camera exposes no frame rate feature.
+
+        AcquisitionFrameRateEnable gates the feature: with it off the
+        camera free-runs at whatever exposure and readout allow and the
+        written value is ignored, so enable it as part of honouring the
+        request -- the same reasoning as ThorlabsCamera's
+        is_frame_rate_control_enabled.
+        """
+        self._require_connected("set frame rate")
+        node = self._find_feature(*_FRAME_RATE_FEATURES)
+        if node is None:
+            return None
+
+        enable = self._find_feature("AcquisitionFrameRateEnable")
+        if enable is not None and enable.IsWritable():
+            enable.SetValue(True)
+
+        self._set_numeric(
+            node, self._fit_to_node(node, frame_rate_hz), "frame rate (fps)"
+        )
+        return float(node.GetValue())
+
+    def get_frame_rate_hz(self) -> Optional[float]:
+        self._require_connected("read frame rate")
+        node = self._find_feature(*_FRAME_RATE_FEATURES)
+        return None if node is None else float(node.GetValue())
+
+    def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
+        self._require_connected("read frame rate range")
+        node = self._find_feature(*_FRAME_RATE_FEATURES)
+        if node is None:
+            return None
+        return (float(node.GetMin()), float(node.GetMax()))
 
     def get_bit_depth(self) -> int:
         """
@@ -426,6 +506,54 @@ class BaslerCamera(CameraInterface):
     def _require_connected(self, action: str) -> None:
         if not self.is_connected():
             raise RuntimeError(f"Cannot {action}: camera is not connected")
+
+    def _gain_feature(self):
+        """
+        (node, description) for whichever gain feature this camera has, or
+        (None, "") if it has none.
+
+        Every gain method resolves the node through here so set_gain(),
+        get_gain() and get_gain_range() can never end up describing
+        different nodes -- a GainRaw range with a Gain read-back would
+        make the GUI's slider bounds silently wrong.
+        """
+        node = self._find_feature("Gain")
+        if node is not None:
+            return node, "gain (dB)"
+        node = self._find_feature("GainRaw")
+        if node is not None:
+            return node, "gain (raw device units)"
+        return None, ""
+
+    @staticmethod
+    def _fit_to_node(node, value: float) -> float:
+        """
+        Clamp into [min, max] and snap onto the node's increment.
+
+        Clamping alone is not enough: GenICam nodes can also constrain the
+        *step* (the emulator's ExposureTime has an increment of 0.1, GainRaw
+        of 1), and SetValue() rejects an off-step value just as hard as an
+        out-of-range one. A GUI slider emitting arbitrary values would hit
+        that on real hardware, so snap here and let the read-back report
+        whatever the camera settled on.
+        """
+        low, high = node.GetMin(), node.GetMax()
+        fitted = min(max(float(value), float(low)), float(high))
+
+        try:
+            increment = node.GetInc()
+        except Exception:
+            # Node has no increment constraint; clamping was sufficient.
+            return fitted
+
+        if not increment:
+            return fitted
+
+        # Round down onto the step grid relative to min, then guard against
+        # floating-point drift pushing the result back under min.
+        steps = int((fitted - float(low)) / float(increment))
+        snapped = float(low) + steps * float(increment)
+        return min(max(snapped, float(low)), float(high))
 
     @staticmethod
     def _set_numeric(node, value, description: str) -> None:

@@ -1,0 +1,68 @@
+name: tests
+
+# No hardware is attached to a GitHub runner, so every job here is a
+# hardware-free lane. Backends that need a real device must skip with a
+# reason -- never fail -- and the verify step below enforces exactly that
+# rather than trusting pytest's exit code, which is 0 for a skip and for a
+# pass alike.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Plain run: MockCamera only. The floor every other lane builds on.
+          - lane: default
+            env: {}
+
+          # pylon's built-in camera emulator stands in for Basler hardware.
+          # The emulator fakes only the sensor -- TlFactory, InstantCamera and
+          # the grab path are real pypylon -- so this lane genuinely exercises
+          # the BaslerCamera driver plumbing.
+          - lane: basler-emulated
+            env: { PYLON_CAMEMU: "1" }
+
+          # Qt with no display, for the GUI tests that arrive in Phase 2.
+          # Present from the start so the lane is proven before it carries load.
+          - lane: qt-offscreen
+            env: { QT_QPA_PLATFORM: "offscreen" }
+
+    name: pytest (${{ matrix.lane }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        env: ${{ matrix.env }}
+        run: pytest tests/ -v -rs --junitxml=report-${{ matrix.lane }}.xml
+
+      - name: Verify hardware-dependent tests skipped rather than failed
+        if: always()
+        run: python .github/scripts/verify_skips.py report-${{ matrix.lane }}.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.lane }}
+          path: report-${{ matrix.lane }}.xml

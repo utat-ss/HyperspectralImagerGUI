@@ -80,6 +80,40 @@ class CameraInterface(ABC):
         """
         return None
 
+    def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
+        """
+        Optional. Request a frame rate in frames per second.
+
+        Same contract as set_gain(): returns the frame rate the camera
+        actually holds after the attempt (which may be clamped -- see
+        get_frame_rate_range_hz()), or None if this backend has no frame
+        rate control at all, in which case nothing was changed. The
+        default implementation is the "no frame rate control" case.
+
+        Note this is the *requested* rate, not the achieved one. Exposure
+        time places a hard ceiling on frame rate that the camera will
+        enforce regardless of what is requested here, so a caller that
+        needs to know what it is really getting must measure delivered
+        frames rather than trust this value.
+        """
+        return None
+
+    def get_frame_rate_hz(self) -> Optional[float]:
+        """
+        Optional counterpart to set_frame_rate_hz(). Returns None if this
+        backend has no frame rate control.
+        """
+        return None
+
+    def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
+        """
+        Optional. Returns the (min, max) frame rate the camera will
+        accept, or None if this backend has no frame rate control -- which
+        is what a GUI reads to decide whether to show a frame rate control
+        at all, exactly as it does with get_gain_range().
+        """
+        return None
+
     @abstractmethod
     def get_bit_depth(self) -> int:
         """

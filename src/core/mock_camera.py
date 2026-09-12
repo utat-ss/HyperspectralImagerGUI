@@ -20,6 +20,7 @@ from typing import Callable, Optional, Tuple
 import numpy as np
 
 from core.camera_interface import CameraInterface
+from core.synthetic_spectrograph import SpectrographTruth, apply_noise, render_clean
 
 
 class MockCamera(CameraInterface):
@@ -35,6 +36,11 @@ class MockCamera(CameraInterface):
     _EXPOSURE_RANGE_US = (10.0, 1_000_000.0)  # 10us .. 1s
     _GAIN_RANGE = (0.0, 10.0)  # brightness multiplier
 
+    # Wide on purpose: the low end lets a test watch the display-rate
+    # decoupling starve, and the high end lets it watch a backend outrun
+    # the 30Hz display timer without either being a special case.
+    _FRAME_RATE_RANGE_HZ = (0.1, 1000.0)
+
     # How many frame-periods of backlog the poll loop will race to catch
     # up on after a stall (a slow on_frame callback, a debugger pause)
     # before it just resyncs to "now" -- analogous to a hardware frame
@@ -47,10 +53,31 @@ class MockCamera(CameraInterface):
         width: int = 640,
         height: int = 480,
         frame_rate_hz: float = 10.0,
+        spectrograph: Optional["SpectrographTruth"] = None,
     ):
+        """
+        Pass `spectrograph` to switch from the structured test pattern to a
+        synthetic spectrograph image with known ground truth (see
+        core.synthetic_spectrograph). The truth object carries its own
+        sensor geometry and bit depth, so those override width/height --
+        a frame whose dimensions disagreed with the mapping that generated
+        it would make every recovered column wrong.
+
+        Everything else is unchanged: the same exposure/gain response, the
+        same live-view threading, the same error injection. Only the image
+        content differs.
+        """
         self._serial = serial
+        self._spectrograph = spectrograph
+
+        if spectrograph is not None:
+            width = spectrograph.width
+            height = spectrograph.height
+
         self._width = width
         self._height = height
+        self._bit_depth = self._BIT_DEPTH if spectrograph is None else spectrograph.bit_depth
+        self._max_value = (1 << self._bit_depth) - 1
         self.frame_rate_hz = frame_rate_hz
 
         self._connected = False
@@ -63,7 +90,12 @@ class MockCamera(CameraInterface):
         self._injected_error: Optional[Exception] = None
         self.live_error: Optional[Exception] = None
 
-        self._pattern = self._build_pattern(width, height)
+        self._pattern = (
+            self._build_pattern(width, height)
+            if spectrograph is None
+            else render_clean(spectrograph)
+        )
+        self._rng = np.random.default_rng()
 
     # -- CameraInterface --
 
@@ -111,13 +143,30 @@ class MockCamera(CameraInterface):
     def get_gain(self) -> Optional[float]:
         return self._gain
 
+    def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot set frame rate: camera is not connected")
+        lo, hi = self._FRAME_RATE_RANGE_HZ
+        self.frame_rate_hz = min(max(float(frame_rate_hz), lo), hi)
+        return self.frame_rate_hz
+
+    def get_frame_rate_hz(self) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate: camera is not connected")
+        return self.frame_rate_hz
+
+    def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate range: camera is not connected")
+        return self._FRAME_RATE_RANGE_HZ
+
     def get_gain_range(self) -> Optional[Tuple[float, float]]:
         return self._GAIN_RANGE
 
     def get_bit_depth(self) -> int:
         if not self.is_connected():
             raise RuntimeError("Cannot read bit depth: camera is not connected")
-        return self._BIT_DEPTH
+        return self._bit_depth
 
     def get_frame(self) -> Optional[np.ndarray]:
         if not self.is_connected():
@@ -219,6 +268,16 @@ class MockCamera(CameraInterface):
         # saturates at the sensor's full-scale value -- the same
         # exposure/brightness relationship a real sensor has.
         exposure_scale = self._exposure_us / self._REFERENCE_EXPOSURE_US
+
+        if self._spectrograph is not None:
+            # No sweeping marker here: it would sit on top of the spectrum
+            # and corrupt the very lines a test or a calibration is trying
+            # to measure. Frame-to-frame variation comes from the noise
+            # model instead, which serves the same "is the view frozen?"
+            # purpose without touching the signal's position.
+            scaled = self._pattern * exposure_scale * self._gain
+            return apply_noise(scaled, self._spectrograph, rng=self._rng)
+
         frame = self._pattern * exposure_scale * self._gain  # fresh array; safe to mutate below
 
         # A marker that sweeps across the frame each call, so a frozen

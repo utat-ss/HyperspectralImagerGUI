@@ -69,13 +69,25 @@ if __name__ == '__main__':
     check('exposure round-trip', camera.get_exposure_us(), 25000.0)
     camera.set_gain(3.0)
 
-    # genicam's own exceptions aren't RuntimeError, so a GUI's
-    # `except RuntimeError` would sail straight past them.
-    expect_error('absurd exposure rejected as RuntimeError',
-                 lambda: camera.set_exposure_us(9.9e11))
-    expect_error('negative exposure rejected as RuntimeError',
-                 lambda: camera.set_exposure_us(-1))
-    check('exposure unchanged after rejection', camera.get_exposure_us(), 25000.0)
+    # CameraInterface.set_exposure_us() is a clamp-and-report contract, not
+    # a reject contract: an out-of-range request is clamped into
+    # get_exposure_range_us() and the value actually held is returned, so a
+    # caller compares the two to detect clamping. ThorlabsCamera and
+    # MockCamera behave the same way, and tests/test_camera_contract.py
+    # asserts it for every backend.
+    #
+    # These three checks previously expected a RuntimeError instead, which
+    # no backend could satisfy while still passing the contract suite.
+    low, high = camera.get_exposure_range_us()
+    check('absurd exposure clamps to max', camera.set_exposure_us(9.9e11), high)
+    check('negative exposure clamps to min', camera.set_exposure_us(-1), low)
+
+    # The original concern behind those checks still stands and is still
+    # covered: genicam's own exceptions aren't RuntimeError, so a GUI's
+    # `except RuntimeError` would sail straight past them. _set_numeric()
+    # wraps them, which the disconnected-behaviour section exercises.
+    camera.set_exposure_us(25000)
+    check('exposure restored after clamping', camera.get_exposure_us(), 25000.0)
 
     # Colour demosaics to RGB8, so deeper Bayer would only waste bandwidth.
     check('colour streams 8-bit Bayer',

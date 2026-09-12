@@ -37,3 +37,11 @@ Run the camera test scripts separately to verify each camera connection.
 Run `python src/gui/app.py webcam` to launch against any connected webcam via
 OpenCV, or `python src/gui/app.py mock` for synthetic frames — both let you
 develop and test the GUI with no scientific camera attached.
+
+`python src/gui/app.py spectrograph` is the demo path: synthetic spectrograph
+frames built from a known pixel-to-wavelength mapping, with realistic smile,
+keystone and sensor noise. Use this to show the spectrometer features working
+without an instrument.
+
+`PYLON_CAMEMU=1 python src/gui/app.py basler` runs the Basler backend against
+pylon's built-in camera emulator, again with no hardware.
