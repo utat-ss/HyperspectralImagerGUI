@@ -4,7 +4,7 @@ Handoff document for PAY-Systems. Every written requirement and every element of
 spec document's GUI mockups, mapped to the module that implements it, the test that
 proves it, and its current state.
 
-**Updated at the end of every phase.** Last updated: end of Phase 2.5.
+**Updated at the end of every phase.** Last updated: end of Phase 3.
 
 Legend: **Done** · **Partial** · **Not started** · **Blocked** (waiting on
 information or hardware nobody on this team currently has)
@@ -21,10 +21,10 @@ information or hardware nobody on this team currently has)
 | R4 | Connect to Thorlabs CS135MUN (VNIR) | `core/thorlabs_camera.py` | `tests/test_camera_contract.py` (skips, no hardware) | **Done**, unverified on hardware |
 | R5 | Connect to FLIR Tau (SWIR), file-based driver | — | — | **Blocked** — SD-card layout, file naming, image format and exposure command all unknown (Phase 7) |
 | R6 | Connection indicator LED | — | — | **Not started** — mockup wants three states, not a binary LED; see open question 7 (Phase 2) |
-| R7 | Semi-live viewing >= 10 fps | `gui/camera_session.py` | fps regression test (Phase 3) | **Partial** — satisfied today; no test guards it yet |
+| R7 | Semi-live viewing >= 10 fps | `gui/camera_session.py` | `tests/test_performance.py` | **Done** — 66 fps end-to-end at 1280x1024 with corrections; guarded by test + a live fps readout in the status bar |
 | R8 | Live view of raw 2D sensor frame | `gui/image_view.py` | — | **Done** |
-| R9 | User-selected line cross-section | — | — | **Not started** (Phase 3) |
-| R10 | Automatic row binning to a spectral axis | `gui/spectrum_extraction.py` | — | **Partial** — `mean(axis=0)` placeholder, no calibration |
+| R9 | User-selected line cross-section | `gui/image_view.py` + `core/spectrum_extraction.py` | `test_line_mode_recovers_the_lines_for_the_row_it_reads` | **Done** — draggable line, verified against ground truth |
+| R10 | Automatic row binning to a spectral axis | `core/spectrum_extraction.py` | `tests/test_spectrum_extraction.py` | **Partial** — binning + smile correction done; still no wavelength axis (Phase 5) |
 | R11 | Live spectrum side by side with the frame | `gui/spectrum_view.py` + `main_window.py` | — | **Done** |
 | R12 | Spectral calibration applied to the spectrum | — | — | **Not started** (Phase 5) |
 | R13 | Toggle: no calibration vs each algorithm | — | — | **Not started** (Phase 4) |
@@ -52,14 +52,14 @@ information or hardware nobody on this team currently has)
 | Connect to Device | Three-state indicator: Connecting / Ready / Error | **Not started** — deliberately *not* added to the ABC; see the open question below |
 | Connect to Device | Device Connection Log | **Not started** |
 | Connect to Device | Integration time (msec), Camera gain, Frame rate | **Partial** — exposure/gain exist as sliders, not msec fields; no frame rate |
-| Live Data Viewer | Camera feed with draggable slide-adjust line | **Partial** — feed yes, line no |
+| Live Data Viewer | Camera feed with draggable slide-adjust line | **Done** |
 | Live Data Viewer | Play / pause transport | **Partial** — a Start/Stop Live toggle exists |
 | Live Data Viewer | Extracted Spectrum Live View (500–1000 nm, 0–1023) | **Partial** — plot exists; axis is pixel index, not nm |
-| Live Data Viewer | Method: Slide-Adjust Line Cross Section | **Not started** |
-| Live Data Viewer | Method: Horizontal Binning | **Partial** — this is the current placeholder |
-| Live Data Viewer | Method: Horizontal Binning **with Smile Correction** | **Not started** |
-| Live Data Viewer | Method: Dark Noise Removal | **Blocked** — no dark frame available |
-| Live Data Viewer | Method: Sensor QE Correction | **Blocked** — no QE curve available |
+| Live Data Viewer | Method: Slide-Adjust Line Cross Section | **Done** |
+| Live Data Viewer | Method: Horizontal Binning | **Done** |
+| Live Data Viewer | Method: Horizontal Binning **with Smile Correction** | **Done** — implemented and tested; disabled in the UI until a calibration supplies coefficients (Phase 5) |
+| Live Data Viewer | Method: Dark Noise Removal | **Partial** — implemented and tested; **blocked** on a real dark frame, so disabled in the UI |
+| Live Data Viewer | Method: Sensor QE Correction | **Partial** — implemented and tested; **blocked** on a real QE curve, so disabled in the UI |
 | Live Data Viewer | Adjust Axes: X left/right, Y low/high | **Not started** |
 | Live Data Viewer | Marker 1 / Marker 2 with X,Y readout | **Not started** |
 | Spec. Calibration | Method 1: Bandpass Filter, with cut-on/cut-off nm | **Not started** |
@@ -84,6 +84,7 @@ information or hardware nobody on this team currently has)
 | CI (GitHub Actions, `windows-latest`, 3 lanes) | **Done** — Phase 0 |
 | Basler backend reachable from the GUI | **Done** — registered in the factory; contract-compliant; 7 emulator tests pass. Awaiting PR #1 owner's review |
 | Synthetic spectrograph test rig | **Done** — `core/synthetic_spectrograph.py`, 20 tests |
+| fps regression guard + UI readout | **Done** — Phase 3 |
 | Hardware-free demo path for the showcase | **Done** — `python src/gui/app.py spectrograph` |
 
 ## Open questions with the lead

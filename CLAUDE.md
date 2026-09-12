@@ -74,8 +74,9 @@ Both scripts are standalone (`if __name__ == '__main__'`) and print/exit with `E
 ### GUI (`src/gui/`)
 - `camera_factory.py` is the only module allowed to name a concrete backend class. It exposes `open_backend(kind: str)`, a context manager that also owns any backend-specific resource lifetime (e.g. Thorlabs' `TLCameraSDK`, via `open_thorlabs_camera()`). Everything downstream only ever holds a `CameraInterface` — no `isinstance`/`hasattr` checks anywhere else in the GUI. Optional capability (e.g. gain) is handled by reading `get_gain_range() is None` and hiding the control, not by checking backend type.
 - `camera_session.py` (`CameraSession`, a `QObject`) is the only thing that calls `start_live`/`stop_live`, and decouples camera frame rate from display rate: the background poll thread only ever writes the newest frame into a lock-protected slot; a `QTimer` on the Qt main thread pulls it at a fixed ~30Hz and emits it as a `Signal`. Frames between ticks are overwritten in place, not queued, so a fast backend (`MockCamera` can emit thousands of frames/sec) can't build an unbounded backlog — "keep only the latest, drop the rest" is the default. `stream_stalled` is derived purely from missing frames (no callback for N seconds while live), not from backend-specific attributes like `ThorlabsCamera`/`MockCamera`'s `live_error`/`is_live()`, which are intentionally not part of `CameraInterface` and therefore not touched by GUI code.
-- `image_view.py`/`spectrum_view.py` scale their display range from `get_bit_depth()`, not the frame's `uint16` container range or per-frame autoscaling.
-- `spectrum_extraction.py` collapses a frame to a 1D trace (`mean(axis=0)`) as a placeholder — there is no slit-orientation or wavelength-calibration data in this repo yet. It's deliberately the only file that assumption lives in.
+- `image_view.py`/`spectrum_view.py` scale their display range from `get_bit_depth()`, not the frame's `uint16` container range or per-frame autoscaling. `image_view.py` also owns the slide-adjust line — a draggable horizontal `InfiniteLine` whose position *is* a sensor row index, because a HxW frame renders W wide and H tall.
+- Extraction lives in `src/core/spectrum_extraction.py`, not `src/gui/` — it is pure `ndarray -> ndarray` and `core/` carries no Qt. `ExtractionSettings` describes a whole pipeline; the GUI composes, it does not implement. Correction order is fixed and load-bearing: dark subtraction (per-pixel, on the frame) → smile correction (geometric resample, must precede any row combination) → row extraction/binning → QE correction (per-wavelength, on the 1D trace). Correcting smile *after* binning is impossible; the information is already smeared.
+- `gui/extraction_panel.py` is the methods checklist, built standalone so the tab shell can re-parent it rather than rewrite it. A correction applies only when its box is **checked and enabled** — `setChecked()` works on a disabled widget, and a stale check that kept a correction running after the user could no longer switch it off caused a real bug. Methods whose data does not exist (dark frame, QE curve, smile coefficients) disable themselves and put the reason in the tooltip, rather than running as silent no-ops: a spectrum labelled "smile corrected" that was not corrected is worse than one honestly labelled uncorrected.
 - Qt binding is PySide6, pinned to `6.7.3` in `requirements.txt` — `6.11.1` fails to import (`DLL load failed while importing QtCore`) on at least one dev machine; verify before bumping.
 
 ### Vendored SDK (`src/thorlabs_tsi_sdk/`)
@@ -158,3 +159,16 @@ Two things it deliberately does:
 `python src/gui/app.py spectrograph` is the hardware-free demo path — the same
 `MockCamera` backend preloaded with `DEMO_TRUTH` (500-1000 nm, Hg-Ar plus hydrogen,
 visible smile bow, gentle keystone, sensor-like noise).
+
+## Frame-rate budget
+
+The >= 10 fps requirement is guarded by `tests/test_performance.py`, which measures the
+whole path — frame in, corrections applied, spectrum extracted, both views told to
+render — at the CS135MUN's 1280x1024, not at a toy size. `MainWindow` also shows a live
+achieved-fps readout in the status bar, measured at the display end, so a regression is
+visible during a demo and not only in CI.
+
+Current headroom: **~66 fps** end-to-end with smile correction, ~520 without.
+`correct_smile()` is therefore ~87% of the per-frame budget and is the first thing to
+vectorise if Phase 5's calibration resample makes things tight. It is left as a
+readable per-row loop until that actually happens.

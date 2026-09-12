@@ -9,19 +9,33 @@ only place backend selection happens is the string read from
 ControlsPanel's backend dropdown and passed to camera_factory.open_backend().
 """
 
-from typing import Optional
+import time
+from collections import deque
+from typing import Deque, Optional
 
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QVBoxLayout,
+    QWidget,
+)
 
 from core.camera_interface import CameraInterface
+from core.spectrum_extraction import ExtractionSettings, extract_spectrum
 from gui import camera_factory
 from gui.camera_session import CameraSession
 from gui.controls_panel import ControlsPanel
+from gui.extraction_panel import ExtractionPanel
 from gui.image_view import LiveImageView
-from gui.spectrum_extraction import extract_spectrum
 from gui.spectrum_view import SpectrumView
 
 DEFAULT_BACKEND = "mock"
+
+# Frames averaged for the achieved-fps readout. Long enough that one slow
+# frame does not make the number jump, short enough that a real regression
+# shows up while the user is still looking at it.
+_FPS_WINDOW_FRAMES = 30
 
 
 class MainWindow(QMainWindow):
@@ -37,20 +51,41 @@ class MainWindow(QMainWindow):
         self._cam: Optional[CameraInterface] = None
         self._session: Optional[CameraSession] = None
 
+        self._settings = ExtractionSettings()
+
         self.image_view = LiveImageView()
         self.spectrum_view = SpectrumView()
+        self.extraction = ExtractionPanel()
         self.controls = ControlsPanel()
         self.controls.set_current_backend(backend)
+
+        side = QWidget()
+        side_layout = QVBoxLayout(side)
+        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.addWidget(self.controls)
+        side_layout.addWidget(self.extraction)
 
         central = QWidget()
         layout = QHBoxLayout(central)
         layout.addWidget(self.image_view, 2)
         layout.addWidget(self.spectrum_view, 2)
-        layout.addWidget(self.controls, 1)
+        layout.addWidget(side, 1)
         self.setCentralWidget(central)
 
         self.controls.connect_toggled.connect(self._on_connect_toggled)
         self.controls.live_toggled.connect(self._on_live_toggled)
+        self.extraction.settings_changed.connect(self._on_settings_changed)
+        self.image_view.line_row_changed.connect(self.extraction.set_row)
+
+        # Achieved frame rate, measured at the display end of the pipeline
+        # rather than requested from the camera: exposure caps the real rate
+        # regardless of what was asked for, and the corrections and
+        # calibration resample that run per frame cost time the camera knows
+        # nothing about. This is the number that tells the truth about
+        # whether the >= 10 fps requirement still holds.
+        self._fps_label = QLabel("-- fps")
+        self.statusBar().addPermanentWidget(self._fps_label)
+        self._frame_times: Deque[float] = deque(maxlen=_FPS_WINDOW_FRAMES)
 
         self.statusBar().showMessage("Disconnected")
 
@@ -91,6 +126,10 @@ class MainWindow(QMainWindow):
         self._cam = None
 
         self.controls.reset()
+        # Stale timings from the last session would otherwise be averaged
+        # into the next one's first readings.
+        self._frame_times.clear()
+        self._fps_label.setText("-- fps")
         self.statusBar().showMessage("Disconnected")
 
     # -- live view --
@@ -105,9 +144,24 @@ class MainWindow(QMainWindow):
             self._session.stop()
             self.statusBar().showMessage(f"Connected: {self._cam.name}")
 
+    def _on_settings_changed(self, settings: ExtractionSettings) -> None:
+        self._settings = settings
+        self.image_view.set_line_visible(self.extraction.line_mode_selected())
+
     def _on_frame(self, frame) -> None:
         self.image_view.show_frame(frame)
-        self.spectrum_view.show_spectrum(extract_spectrum(frame))
+        self.spectrum_view.show_spectrum(extract_spectrum(frame, self._settings))
+        self._record_frame_time()
+
+    def _record_frame_time(self) -> None:
+        self._frame_times.append(time.perf_counter())
+        if len(self._frame_times) < 2:
+            return
+        elapsed = self._frame_times[-1] - self._frame_times[0]
+        if elapsed <= 0:
+            return
+        fps = (len(self._frame_times) - 1) / elapsed
+        self._fps_label.setText(f"{fps:.1f} fps")
 
     def _on_stream_stalled(self) -> None:
         self.statusBar().showMessage(f"Connected: {self._cam.name} -- STREAM STALLED", 5000)
