@@ -17,7 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core.camera_interface import CameraInterface
-from core.controller import ApplicationController, ControllerError
+from core.controller import ApplicationController, CameraName, ControllerError
 
 
 _failures = []
@@ -106,19 +106,19 @@ if __name__ == "__main__":
         )
 
         print("--- connect / settings ---")
-        check("basler starts disconnected", controller.is_connected("basler"), False)
-        check_true("connect basler", controller.connect("basler"))
+        check("basler starts disconnected", controller.is_connected(CameraName.BASLER), False)
+        check_true("connect basler", controller.connect(CameraName.BASLER))
         check("basler connect calls", basler.connect_calls, 1)
-        check("basler connected", controller.is_connected("basler"), True)
-        check_true("connect thorlabs", controller.connect("thorlabs"))
-        controller.set_exposure_us("basler", 25000.0)
-        check("basler exposure", controller.get_exposure_us("basler"), 25000.0)
-        controller.set_gain("thorlabs", 1.5)
+        check("basler connected", controller.is_connected(CameraName.BASLER), True)
+        check_true("connect thorlabs", controller.connect(CameraName.THORLABS))
+        controller.set_exposure_us(CameraName.BASLER, 25000.0)
+        check("basler exposure", controller.get_exposure_us(CameraName.BASLER), 25000.0)
+        controller.set_gain(CameraName.THORLABS, 1.5)
         check("thorlabs gain", thorlabs._gain, 1.5)
 
         print("--- capture requires measurement ---")
         try:
-            controller.capture_frame("basler")
+            controller.capture_frame(CameraName.BASLER)
             check_true("capture without measurement raises", False)
         except ControllerError:
             check_true("capture without measurement raises", True)
@@ -131,8 +131,8 @@ if __name__ == "__main__":
         )
         check("active id", measurement.id, "meas_ctrl_001")
         check("measurement property", controller.measurement is measurement, True)
-        result = controller.capture_frame("basler")
-        check("result camera", result.camera, "basler")
+        result = controller.capture_frame(CameraName.BASLER)
+        check("result camera", result.camera, CameraName.BASLER)
         check("result measurement", result.measurement_id, "meas_ctrl_001")
         check("result path", result.relative_path, "raw/basler/frame_000.png")
         check("basler frames issued", basler.frames_issued, 1)
@@ -144,7 +144,7 @@ if __name__ == "__main__":
             (controller.measurement_dir() / "raw" / "basler" / "frame_000.png").is_file(),
         )
 
-        thor_result = controller.capture_frame("thorlabs")
+        thor_result = controller.capture_frame(CameraName.THORLABS)
         check("thorlabs path", thor_result.relative_path, "raw/thorlabs/frame_000.npy")
         check("thorlabs frame count", len(measurement.raw.thorlabs_frames), 1)
         check_true("thorlabs frame values", np.array_equal(thor_result.frame, thor_frame))
@@ -155,9 +155,9 @@ if __name__ == "__main__":
 
         print("--- live + guards ---")
         seen = []
-        controller.start_live("basler", seen.append)
+        controller.start_live(CameraName.BASLER, seen.append)
         check("live delivered a frame", len(seen), 1)
-        controller.stop_live("basler")
+        controller.stop_live(CameraName.BASLER)
         check("live stopped", basler._live, False)
 
         try:
@@ -168,22 +168,22 @@ if __name__ == "__main__":
 
         basler.fail_next_frame = True
         try:
-            controller.capture_frame("basler")
+            controller.capture_frame(CameraName.BASLER)
             check_true("empty frame raises", False)
         except ControllerError:
             check_true("empty frame raises", True)
 
-        controller.disconnect("basler")
+        controller.disconnect(CameraName.BASLER)
         try:
-            controller.capture_frame("basler")
+            controller.capture_frame(CameraName.BASLER)
             check_true("disconnected capture raises", False)
         except ControllerError:
             check_true("disconnected capture raises", True)
 
         print("--- load round-trip ---")
         controller.disconnect_all()
-        check("basler disconnected", controller.is_connected("basler"), False)
-        check("thorlabs disconnected", controller.is_connected("thorlabs"), False)
+        check("basler disconnected", controller.is_connected(CameraName.BASLER), False)
+        check("thorlabs disconnected", controller.is_connected(CameraName.THORLABS), False)
 
         loaded_ctrl = ApplicationController(tmp, basler=basler, thorlabs=thorlabs)
         loaded = loaded_ctrl.load_measurement("meas_ctrl_001")
@@ -197,10 +197,17 @@ if __name__ == "__main__":
         print("--- missing camera object ---")
         sparse = ApplicationController(tmp, basler=None, thorlabs=thorlabs)
         try:
-            sparse.connect("basler")
+            sparse.connect(CameraName.BASLER)
             check_true("missing basler raises", False)
         except ControllerError:
             check_true("missing basler raises", True)
+
+        no_thorlabs = ApplicationController(tmp, basler=basler)
+        try:
+            no_thorlabs.connect(CameraName.THORLABS)
+            check_true("omitted thorlabs is not auto-built", False)
+        except ControllerError:
+            check_true("omitted thorlabs is not auto-built", True)
 
         print()
         if _failures:

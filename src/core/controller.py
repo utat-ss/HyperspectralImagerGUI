@@ -3,7 +3,7 @@ Application controller: GUI-facing intents over cameras and measurement storage.
 
 The GUI names what the user wants. This class decides which backend objects
 to call. The GUI should not import CameraInterface or MeasurementStorage; it
-only knows "basler" / "thorlabs" and these methods.
+only knows CameraName and these methods.
 
 Rule: if a GUI action needs backend work, it belongs here. Simple methods
 are one-liners (connect -> camera.connect()). Coordinated methods talk to
@@ -21,20 +21,28 @@ example thumbnail, calibration file, datacube, processed product). Scan /
 stage / processing wait until those backends exist. Widget layout and Qt
 signals stay in the GUI.
 
+Camera objects are created by the app entry point and passed in. This class
+does not construct BaslerCamera or ThorlabsCamera.
+
 Typical GUI flow (no widgets here)::
 
-    controller = ApplicationController(storage_root="measurements")
-    controller.connect("basler")
+    controller = ApplicationController(
+        storage_root="measurements",
+        basler=basler_camera,
+        thorlabs=thorlabs_camera,
+    )
+    controller.connect(CameraName.BASLER)
     controller.create_measurement(name="bench capture")
-    result = controller.capture_frame("basler")
-    controller.disconnect("basler")
+    result = controller.capture_frame(CameraName.BASLER)
+    controller.disconnect(CameraName.BASLER)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import numpy as np
 
@@ -42,11 +50,15 @@ from core.camera_interface import CameraInterface
 from core.measurement import CameraCaptureConfig, Measurement
 from core.measurement_storage import MeasurementStorage, PathLike
 
-CameraName = str  # "basler" or "thorlabs"
 
-_BASLER = "basler"
-_THORLABS = "thorlabs"
-_KNOWN_CAMERAS = (_BASLER, _THORLABS)
+class CameraName(str, Enum):
+    """Camera labels used by the controller and by measurement folders on disk."""
+
+    BASLER = "basler"
+    THORLABS = "thorlabs"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class ControllerError(RuntimeError):
@@ -60,7 +72,7 @@ class ControllerError(RuntimeError):
 class CaptureResult:
     """Return value of capture_frame() so the GUI can display and log the grab."""
 
-    camera: str
+    camera: CameraName
     frame: np.ndarray
     relative_path: str
     measurement_id: str
@@ -71,8 +83,8 @@ class ApplicationController:
     Intermediary between a future GUI and backend objects.
 
     Cameras are optional so a machine with only one rig (or tests with fakes)
-    still works. Pass CameraInterface implementations; Thorlabs defaults to
-    ThorlabsCamera if omitted.
+    still works. Pass CameraInterface instances from the app entry point;
+    this class does not construct them.
     """
 
     def __init__(
@@ -83,9 +95,9 @@ class ApplicationController:
         thorlabs: Optional[CameraInterface] = None,
     ):
         self._storage = MeasurementStorage(storage_root)
-        self._cameras: dict[str, Optional[CameraInterface]] = {
-            _BASLER: basler,
-            _THORLABS: thorlabs if thorlabs is not None else _default_thorlabs(),
+        self._cameras: dict[CameraName, Optional[CameraInterface]] = {
+            CameraName.BASLER: basler,
+            CameraName.THORLABS: thorlabs,
         }
         self._measurement: Optional[Measurement] = None
 
@@ -121,49 +133,49 @@ class ApplicationController:
     # Camera connection
     # ------------------------------------------------------------------
 
-    def connect(self, camera: CameraName) -> bool:
+    def connect(self, camera: Union[CameraName, str]) -> bool:
         """Open the named camera. Returns True on success."""
         return self._require_camera(camera).connect()
 
-    def disconnect(self, camera: CameraName) -> None:
+    def disconnect(self, camera: Union[CameraName, str]) -> None:
         """Close the named camera (no-op if that camera was never wired in)."""
-        cam = self._cameras[self._normalize(camera)]
+        cam = self._cameras[self._camera_name(camera)]
         if cam is not None:
             cam.disconnect()
 
     def disconnect_all(self) -> None:
         """Close every camera that is currently attached."""
-        for name in _KNOWN_CAMERAS:
+        for name in CameraName:
             self.disconnect(name)
 
-    def is_connected(self, camera: CameraName) -> bool:
-        cam = self._cameras[self._normalize(camera)]
+    def is_connected(self, camera: Union[CameraName, str]) -> bool:
+        cam = self._cameras[self._camera_name(camera)]
         return cam is not None and cam.is_connected()
 
     # ------------------------------------------------------------------
     # Camera settings (thin wrappers)
     # ------------------------------------------------------------------
 
-    def set_exposure_us(self, camera: CameraName, exposure_us: float) -> None:
+    def set_exposure_us(self, camera: Union[CameraName, str], exposure_us: float) -> None:
         self._require_camera(camera).set_exposure_us(exposure_us)
 
-    def get_exposure_us(self, camera: CameraName) -> float:
+    def get_exposure_us(self, camera: Union[CameraName, str]) -> float:
         return self._require_camera(camera).get_exposure_us()
 
-    def set_gain(self, camera: CameraName, gain: float) -> None:
+    def set_gain(self, camera: Union[CameraName, str], gain: float) -> None:
         self._require_camera(camera).set_gain(gain)
 
     # ------------------------------------------------------------------
     # Acquisition
     # ------------------------------------------------------------------
 
-    def capture_frame(self, camera: CameraName) -> CaptureResult:
+    def capture_frame(self, camera: Union[CameraName, str]) -> CaptureResult:
         """
         Grab one frame from the named camera, record it on the active
         measurement, and write it under raw/<camera>/.
         """
-        cam = self._require_camera(camera)
-        key = self._normalize(camera)
+        key = self._camera_name(camera)
+        cam = self._require_camera(key)
         measurement = self._require_measurement()
 
         if not cam.is_connected():
@@ -174,7 +186,7 @@ class ApplicationController:
             raise ControllerError(f"{key} camera returned no frame")
 
         relative = self._storage.add_raw_frame(
-            measurement, key, frame, save_metadata=False
+            measurement, key.value, frame, save_metadata=False
         )
         self._record_capture_config(measurement, key, cam)
         self._storage.save(measurement)
@@ -187,13 +199,13 @@ class ApplicationController:
 
     def start_live(
         self,
-        camera: CameraName,
+        camera: Union[CameraName, str],
         on_frame: Callable[[np.ndarray], None],
     ) -> None:
         """Start continuous acquisition; on_frame is called from a camera thread."""
         self._require_camera(camera).start_live(on_frame)
 
-    def stop_live(self, camera: CameraName) -> None:
+    def stop_live(self, camera: Union[CameraName, str]) -> None:
         self._require_camera(camera).stop_live()
 
     def measurement_dir(self) -> Path:
@@ -205,21 +217,24 @@ class ApplicationController:
     # Internals
     # ------------------------------------------------------------------
 
-    def _normalize(self, camera: CameraName) -> str:
-        key = camera.lower().strip()
-        if key not in _KNOWN_CAMERAS:
+    def _camera_name(self, camera: Union[CameraName, str]) -> CameraName:
+        if isinstance(camera, CameraName):
+            return camera
+        try:
+            return CameraName(str(camera).strip().lower())
+        except ValueError:
+            names = ", ".join(member.value for member in CameraName)
             raise ControllerError(
-                f'camera must be "basler" or "thorlabs", got {camera!r}'
-            )
-        return key
+                f"camera must be one of: {names}; got {camera!r}"
+            ) from None
 
-    def _require_camera(self, camera: CameraName) -> CameraInterface:
-        key = self._normalize(camera)
+    def _require_camera(self, camera: Union[CameraName, str]) -> CameraInterface:
+        key = self._camera_name(camera)
         cam = self._cameras[key]
         if cam is None:
             raise ControllerError(
                 f"No {key} camera attached. Pass a CameraInterface to "
-                f"ApplicationController({key}=...)."
+                f"ApplicationController({key.value}=...)."
             )
         return cam
 
@@ -233,23 +248,14 @@ class ApplicationController:
     def _record_capture_config(
         self,
         measurement: Measurement,
-        camera: str,
+        camera: CameraName,
         cam: CameraInterface,
     ) -> None:
         config = CameraCaptureConfig(
-            name=getattr(cam, "name", camera),
+            name=getattr(cam, "name", camera.value),
             exposure_us=float(cam.get_exposure_us()),
         )
-        if camera == _BASLER:
+        if camera is CameraName.BASLER:
             measurement.acquisition.basler = config
         else:
             measurement.acquisition.thorlabs = config
-
-
-def _default_thorlabs() -> Optional[CameraInterface]:
-    """Construct ThorlabsCamera when the module is available; otherwise leave unset."""
-    try:
-        from core.thorlabs_camera import ThorlabsCamera
-    except ImportError:
-        return None
-    return ThorlabsCamera()
