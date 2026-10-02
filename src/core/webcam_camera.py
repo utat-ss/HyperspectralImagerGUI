@@ -59,11 +59,13 @@ class WebcamCamera(CameraInterface):
     _BIT_DEPTH = 8
     _EXPOSURE_RANGE_US = (100.0, 500_000.0)  # conventional DirectShow-ish placeholder, not hardware-reported
     _MAX_CONSECUTIVE_READ_FAILURES = 30  # ~1s of failed reads at a typical 30fps device before giving up
+    _FRAME_RATE_RANGE_HZ = (1.0, 120.0)  # conventional placeholder -- OpenCV has no range query, same as gain
 
     def __init__(self, index: int = 0):
         self._index = index
         self._cap: Optional[cv2.VideoCapture] = None
         self._gain_range: Optional[Tuple[float, float]] = None
+        self._frame_rate_range: Optional[Tuple[float, float]] = None
 
         self._live_thread: Optional[threading.Thread] = None
         self._stop_flag = threading.Event()
@@ -79,6 +81,7 @@ class WebcamCamera(CameraInterface):
             raise RuntimeError(f"Could not open webcam at index {self._index}")
 
         self._gain_range = self._probe_gain_range()
+        self._frame_rate_range = self._probe_frame_rate_range()
         return self.is_connected()
 
     def disconnect(self) -> None:
@@ -186,6 +189,51 @@ class WebcamCamera(CameraInterface):
     def _to_gray_u16(bgr: np.ndarray) -> np.ndarray:
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         return gray.astype(np.uint16)
+
+    def _probe_frame_rate_range(self) -> Optional[Tuple[float, float]]:
+        """
+        Same probe-don't-trust approach as _probe_gain_range(): UVC drivers
+        routinely accept a CAP_PROP_FPS write and ignore it, and OpenCV has
+        no capability query to ask. Nudge it, see whether the read-back
+        moves, restore.
+
+        A device reporting 0 fps is also treated as unsupported -- some
+        drivers return 0 rather than a real value, and advertising a range
+        whose current value is outside it would break the GUI's slider.
+        """
+        baseline = self._cap.get(cv2.CAP_PROP_FPS)
+        if baseline <= 0:
+            return None
+
+        probe = baseline / 2.0 if baseline > 2.0 else baseline + 1.0
+        self._cap.set(cv2.CAP_PROP_FPS, probe)
+        after = self._cap.get(cv2.CAP_PROP_FPS)
+        self._cap.set(cv2.CAP_PROP_FPS, baseline)  # restore before doing anything else
+
+        if math.isclose(after, baseline, abs_tol=1e-6):
+            return None
+        return self._FRAME_RATE_RANGE_HZ
+
+    def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot set frame rate: camera is not connected")
+        if self._frame_rate_range is None:
+            return None
+        lo, hi = self._frame_rate_range
+        self._cap.set(cv2.CAP_PROP_FPS, min(max(float(frame_rate_hz), lo), hi))
+        return float(self._cap.get(cv2.CAP_PROP_FPS))
+
+    def get_frame_rate_hz(self) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate: camera is not connected")
+        if self._frame_rate_range is None:
+            return None
+        return float(self._cap.get(cv2.CAP_PROP_FPS))
+
+    def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate range: camera is not connected")
+        return self._frame_rate_range
 
     def _probe_gain_range(self) -> Optional[Tuple[float, float]]:
         """
