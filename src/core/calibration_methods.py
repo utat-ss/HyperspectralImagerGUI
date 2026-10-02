@@ -38,8 +38,8 @@ Accuracy note
 These are validated against `core.synthetic_spectrograph` ground truth,
 which proves the *mathematics* recovers a mapping that was put in. It does
 not prove the assumed file format matches a real export, nor that the real
-instrument's distortion looks like the model. Those are bench items -- see
-`docs/HARDWARE_CHECKLIST.md`.
+instrument's distortion looks like the model. Both need confirming against a
+real instrument.
 """
 
 from __future__ import annotations
