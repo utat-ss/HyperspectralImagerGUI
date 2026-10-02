@@ -1,0 +1,104 @@
+# Quantum efficiency curve -- VENDOR DATASHEET DATA, NOT A MEASURED CALIBRATION.
+#
+# Source:   ON Semiconductor PYTHON 1300 (NOIP1SN1300A) datasheet, Figure 4,
+#           'Quantum Efficiency Curve for Standard and NIR Mono' -- the NIR trace.
+#           https://www.onsemi.com/download/data-sheet/pdf/noip1sn1300a-d.pdf
+# Method:   digitized from the figure's vector path data (81 points), mapped with
+#           the plot's own gridlines: 41 vertical at 20 nm from 300-1100 nm,
+#           36 horizontal at 2% from 0-70%.
+#
+# WHAT THIS IS NOT:
+#  * Not this camera. It is the SENSOR's response. The Thorlabs CS135MUN adds an
+#    AR-coated window (<0.5% reflectance/surface, 650-1050 nm) that is not included.
+#  * Not this unit. It is the datasheet's typical curve, not a measured device.
+#  * Not exact. Digitized peak is 62.3% @ 650 nm; Thorlabs quote 60% @ 600 nm for the
+#    CS135MUN and the datasheet's own spec table says 56% @ 550 nm for standard mono.
+#    Expect roughly +3 percentage points of absolute bias versus those figures.
+#
+# WHY IT IS STILL USEFUL: QE correction divides the measured spectrum by this curve,
+# so a constant scale error cancels out entirely -- only the SHAPE across wavelength
+# affects the corrected result, and the shape is what the figure gives accurately.
+#
+# Replace with a measured response when bench time allows -- see checklist item D11.
+wavelength_nm,quantum_efficiency_percent
+300.00,0.476
+310.03,1.185
+319.94,5.451
+329.97,11.232
+339.89,16.651
+349.92,20.917
+360.06,24.293
+370.08,28.049
+380.00,33.385
+390.03,38.343
+399.94,41.440
+409.97,44.157
+419.89,46.381
+430.03,48.720
+440.06,49.955
+449.97,51.635
+460.00,53.414
+470.03,54.583
+479.95,56.461
+489.97,56.791
+500.11,56.231
+510.03,56.165
+520.06,58.339
+529.97,58.306
+540.00,59.129
+549.92,59.541
+559.95,60.167
+570.08,59.426
+580.00,58.471
+590.03,60.595
+600.06,61.501
+609.97,61.106
+620.00,61.929
+629.92,61.995
+640.05,59.344
+650.08,62.259
+660.00,60.694
+670.03,59.838
+679.95,58.438
+689.97,59.245
+700.00,60.315
+710.03,56.659
+720.05,57.235
+730.08,57.153
+740.00,55.440
+750.03,53.941
+759.95,50.696
+769.97,49.774
+780.11,48.506
+790.03,46.282
+800.05,43.268
+810.08,41.934
+820.00,38.920
+830.03,36.482
+839.95,36.004
+849.97,34.291
+860.11,31.590
+870.03,29.301
+880.06,27.588
+889.97,25.578
+900.00,23.420
+910.03,21.411
+919.95,19.484
+930.08,16.997
+940.11,14.625
+950.03,12.895
+960.06,11.957
+969.97,10.705
+980.00,8.827
+989.92,6.966
+1000.06,5.747
+1010.08,4.874
+1020.00,4.117
+1030.03,3.375
+1040.06,2.618
+1049.97,1.926
+1060.00,1.448
+1070.14,1.053
+1080.06,0.822
+1090.08,0.658
+1100.00,0.493
