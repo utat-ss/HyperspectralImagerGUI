@@ -8,7 +8,10 @@ class ProcessingOperation(ABC):
     Base interface for an executable processing operation.
 
     Processing operations take captured or previously processed numerical
-    data and return the processed result.
+    data and return a NumPy array so operations can be chained together.
+
+    The input and output may represent images, hyperspectral datacubes,
+    or other array-based processing products.
     """
 
     @abstractmethod
