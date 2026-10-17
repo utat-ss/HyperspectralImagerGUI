@@ -35,6 +35,11 @@ class MockCamera(CameraInterface):
     _EXPOSURE_RANGE_US = (10.0, 1_000_000.0)  # 10us .. 1s
     _GAIN_RANGE = (0.0, 10.0)  # brightness multiplier
 
+    # Wide on purpose: the low end lets a test watch the display-rate
+    # decoupling starve, and the high end lets it watch a backend outrun
+    # the 30Hz display timer without either being a special case.
+    _FRAME_RATE_RANGE_HZ = (0.1, 1000.0)
+
     # How many frame-periods of backlog the poll loop will race to catch
     # up on after a stall (a slow on_frame callback, a debugger pause)
     # before it just resyncs to "now" -- analogous to a hardware frame
@@ -110,6 +115,23 @@ class MockCamera(CameraInterface):
 
     def get_gain(self) -> Optional[float]:
         return self._gain
+
+    def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot set frame rate: camera is not connected")
+        lo, hi = self._FRAME_RATE_RANGE_HZ
+        self.frame_rate_hz = min(max(float(frame_rate_hz), lo), hi)
+        return self.frame_rate_hz
+
+    def get_frame_rate_hz(self) -> Optional[float]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate: camera is not connected")
+        return self.frame_rate_hz
+
+    def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
+        if not self.is_connected():
+            raise RuntimeError("Cannot read frame rate range: camera is not connected")
+        return self._FRAME_RATE_RANGE_HZ
 
     def get_gain_range(self) -> Optional[Tuple[float, float]]:
         return self._GAIN_RANGE
