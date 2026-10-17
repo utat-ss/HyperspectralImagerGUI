@@ -1,18 +1,9 @@
 """
-The application shell: a tab per area of the spec document's mockups, and
-the owner of every camera connection.
+The application shell, and the owner of every camera connection.
 
-Nothing in this file checks what kind of CameraInterface it has. Device
-selection is a string from the Connect tab, handed straight to
-camera_factory.open_backend().
-
-Multiple devices may be connected at once; exactly one is *displayed*. Each
-connection holds its own CameraSession, but only the displayed one is
-started, so per-frame work in the display path stays at one camera's worth
-no matter how many are open -- which is what the >= 10 fps requirement
-depends on. Switching the displayed device stops the old stream and starts
-the new one, which is why the live toggle follows the display rather than
-each device keeping its own.
+Multiple devices may be connected at once; exactly one is *displayed*, and
+only that one streams, so per-frame work stays at one camera's worth. The
+live toggle therefore follows the display rather than each device.
 """
 
 import time
@@ -25,25 +16,17 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QTabWidget,
-    QVBoxLayout,
     QWidget,
 )
 
-from core.calibration import CalibrationSet, WavelengthCalibration
 from core.camera_interface import CameraInterface
-from core.measurement_save import CaptureMetadata, SpectrumMeasurement
-from core.qe_curve import load_bundled_qe_curve
-from core.spectrum_extraction import ExtractionSettings, extract_spectrum
 from gui import camera_factory
-from gui.axes_panel import AxesPanel
-from gui.calibration_panel import CalibrationPanel
 from gui.camera_session import CameraSession
 from gui.connect_tab import ConnectTab
 from gui.connection_state import ConnectionState
 from gui.controls_panel import ControlsPanel
-from gui.extraction_panel import ExtractionPanel
 from gui.image_view import LiveImageView
-from gui.save_panel import SavePanel
+from gui.spectrum_extraction import extract_spectrum
 from gui.spectrum_view import SpectrumView
 
 DEFAULT_BACKEND = "mock"
@@ -55,7 +38,6 @@ _FPS_WINDOW_FRAMES = 30
 
 TAB_CONNECT = "Connect to Device"
 TAB_LIVE = "Live Data Viewer"
-TAB_CALIBRATION = "Spec. Calibration"
 
 
 @dataclass
@@ -75,26 +57,15 @@ class MainWindow(QMainWindow):
 
         self._connections: Dict[str, _Connection] = {}
         self._displayed: Optional[str] = None
-        self._settings = ExtractionSettings()
-        self._latest_frame = None
-        self._latest_spectrum = None
 
         self.image_view = LiveImageView()
         self.spectrum_view = SpectrumView()
-        self.extraction = ExtractionPanel()
         self.controls = ControlsPanel()
-        self.axes = AxesPanel()
         self.connect_tab = ConnectTab()
-        self.calibration_panel = CalibrationPanel()
-        self.save_panel = SavePanel()
-        # Neither panel touches a camera; the window supplies what they need.
-        self.calibration_panel.set_frame_source(self.latest_frame)
-        self.save_panel.set_measurement_source(self.build_measurement)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.connect_tab, TAB_CONNECT)
         self.tabs.addTab(self._build_live_tab(), TAB_LIVE)
-        self.tabs.addTab(self.calibration_panel, TAB_CALIBRATION)
         self.setCentralWidget(self.tabs)
 
         self.connect_tab.connect_requested.connect(self.connect_device)
@@ -102,30 +73,11 @@ class MainWindow(QMainWindow):
         self.connect_tab.display_requested.connect(self.display_device)
 
         self.controls.live_toggled.connect(self._on_live_toggled)
-        self.extraction.settings_changed.connect(self._on_settings_changed)
-        self.image_view.line_row_changed.connect(self.extraction.set_row)
-
-        self.axes.calibration_selected.connect(self._on_calibration_selected)
-        self.axes.x_range_changed.connect(self.spectrum_view.set_x_range)
-        self.axes.y_range_changed.connect(self.spectrum_view.set_y_range)
-        self.axes.marker_toggled.connect(self.spectrum_view.set_marker_visible)
-        self.spectrum_view.marker_moved.connect(self.axes.update_marker_readout)
-        self.calibration_panel.calibration_produced.connect(
-            self._on_calibration_produced
-        )
-
-        self._calibrations = CalibrationSet()
-        self.axes.set_calibrations(self._calibrations)
-
-        # The shipped vendor QE curve. It is indexed by wavelength, so it
-        # cannot become a per-column correction until a calibration exists
-        # -- see _refresh_qe_curve.
-        self._qe_curve = load_bundled_qe_curve()
 
         # Achieved frame rate, measured at the display end rather than
         # requested from the camera: exposure caps the real rate regardless
-        # of the request, and the corrections that run per frame cost time
-        # the camera knows nothing about.
+        # of the request, and the work done per frame costs time the camera
+        # knows nothing about.
         self._fps_label = QLabel("-- fps")
         self.statusBar().addPermanentWidget(self._fps_label)
         self._frame_times: Deque[float] = deque(maxlen=_FPS_WINDOW_FRAMES)
@@ -139,19 +91,11 @@ class MainWindow(QMainWindow):
     # -- layout --
 
     def _build_live_tab(self) -> QWidget:
-        side = QWidget()
-        side_layout = QVBoxLayout(side)
-        side_layout.setContentsMargins(0, 0, 0, 0)
-        side_layout.addWidget(self.controls)
-        side_layout.addWidget(self.extraction)
-        side_layout.addWidget(self.axes)
-        side_layout.addWidget(self.save_panel)
-
         tab = QWidget()
         layout = QHBoxLayout(tab)
         layout.addWidget(self.image_view, 2)
         layout.addWidget(self.spectrum_view, 2)
-        layout.addWidget(side, 1)
+        layout.addWidget(self.controls, 1)
         return tab
 
     # -- connection lifecycle --
@@ -231,8 +175,6 @@ class MainWindow(QMainWindow):
             connection.session.frame_ready.disconnect(self._on_frame)
 
         self._displayed = None
-        self._latest_frame = None
-        self._latest_spectrum = None
         self.controls.reset()
         self._frame_times.clear()
         self._fps_label.setText("-- fps")
@@ -263,16 +205,9 @@ class MainWindow(QMainWindow):
             connection.session.stop()
             self.statusBar().showMessage(f"Displaying: {connection.camera.name}")
 
-    def _on_settings_changed(self, settings: ExtractionSettings) -> None:
-        self._settings = settings
-        self.image_view.set_line_visible(self.extraction.line_mode_selected())
-
     def _on_frame(self, frame) -> None:
-        self._latest_frame = frame
-        spectrum = extract_spectrum(frame, self._settings)
-        self._latest_spectrum = spectrum
         self.image_view.show_frame(frame)
-        self.spectrum_view.show_spectrum(spectrum)
+        self.spectrum_view.show_spectrum(extract_spectrum(frame))
         self._record_frame_time()
 
     def _record_frame_time(self) -> None:
@@ -289,86 +224,6 @@ class MainWindow(QMainWindow):
         message = "STREAM STALLED"
         self.statusBar().showMessage(message, 5000)
         self.connect_tab.append_log(message)
-
-    # -- calibration --
-
-    def _on_calibration_selected(self, calibration) -> None:
-        self.spectrum_view.set_calibration(calibration)
-        # A calibration that also characterised smile hands its coefficients
-        # to the extraction panel, which is what un-greys smile correction.
-        smile = calibration.smile_coeffs() if calibration is not None else None
-        self.extraction.set_smile_coeffs(smile)
-        self._refresh_qe_curve(calibration)
-
-    def _refresh_qe_curve(self, calibration) -> None:
-        """
-        Resample the QE curve onto sensor columns for the selected
-        calibration, or clear it when there is none.
-
-        QE is a function of wavelength and a frame is a function of column,
-        so this correction only becomes meaningful once lambda(x) is known.
-        With no calibration there is nothing honest to apply, and the
-        extraction panel greys the option out.
-        """
-        if calibration is None or self._qe_curve is None or self._latest_frame is None:
-            self.extraction.set_qe_curve(None)
-            return
-        width = self._latest_frame.shape[1]
-        self.extraction.set_qe_curve(
-            self._qe_curve.resample_to_columns(calibration, width)
-        )
-
-    def add_calibration(self, calibration: WavelengthCalibration) -> None:
-        """Publish a calibration to the axis toggle."""
-        self._calibrations = self._calibrations.with_added(calibration)
-        self.axes.set_calibrations(self._calibrations)
-
-    def latest_frame(self):
-        """
-        Most recent displayed frame, or None. Handed to the calibration
-        panel as its frame source so no widget has to know a camera exists.
-        """
-        return self._latest_frame
-
-    def build_measurement(self, name: str, comments: str):
-        """
-        Assemble everything needed to save what is currently on screen.
-
-        The save panel calls this rather than reaching for a camera itself,
-        which keeps the rule that no widget touches a backend -- and makes
-        the panel testable by injecting a measurement instead.
-
-        Returns None when there is no spectrum yet, so the panel can say so
-        rather than writing an empty folder.
-        """
-        if self._latest_spectrum is None:
-            return None
-
-        camera = self.displayed_camera()
-        capture = CaptureMetadata()
-        if camera is not None:
-            capture = CaptureMetadata(
-                camera_name=camera.name,
-                exposure_us=camera.get_exposure_us(),
-                gain=camera.get_gain(),
-                frame_rate_hz=camera.get_frame_rate_hz(),
-                bit_depth=camera.get_bit_depth(),
-            )
-
-        return SpectrumMeasurement(
-            spectrum=self._latest_spectrum,
-            frame=self._latest_frame,
-            name=name,
-            comments=comments,
-            capture=capture,
-            calibration=self.axes.current_calibration(),
-            extraction=self._settings.describe(),
-        )
-
-    def _on_calibration_produced(self, result) -> None:
-        """A method finished: publish it and select it straight away."""
-        self.add_calibration(result.calibration)
-        self.axes.calibration_combo.setCurrentText(result.calibration.name)
 
     # -- shutdown --
 

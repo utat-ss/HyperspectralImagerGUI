@@ -1,18 +1,8 @@
 """
-GUI entry point.
+GUI entry point: `python src/gui/app.py [device]`.
 
-Run:
-    python src/gui/app.py [device]
-
-The optional device is auto-connected on start and shown in the Live Data
-Viewer, which is what makes the demo path a single command. Pass nothing to
-open on the Connect tab with nothing connected -- what a real user sees.
-
-    python src/gui/app.py spectrograph   # synthetic spectrograph demo
-    python src/gui/app.py mock           # structured test pattern
-    python src/gui/app.py                # no device; pick one in the UI
-
-See gui.camera_factory.DEVICES for the full list.
+A device given here is auto-connected and shown in the Live Data Viewer;
+with none, the app opens on the Connect tab. See camera_factory.DEVICES.
 """
 
 import sys

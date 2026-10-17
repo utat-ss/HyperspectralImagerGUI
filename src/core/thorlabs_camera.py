@@ -146,14 +146,9 @@ class ThorlabsCamera(CameraInterface):
 
     def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
         """
-        Clamp into frame_rate_control_value_range and return the read-back,
-        or None if this camera model has no frame rate control.
-
-        Setting the value is not enough on its own: the SDK gates the
-        feature behind is_frame_rate_control_enabled, and with it off the
-        frame rate is whatever exposure and readout time happen to
-        produce. So enable it as part of honouring the request -- a caller
-        asking for a specific rate is asking for it to be controlled.
+        Clamp into the SDK's range and return the read-back, or None if
+        unsupported. Also sets is_frame_rate_control_enabled: without it
+        the rate is whatever exposure and readout happen to produce.
         """
         if not self.is_connected():
             raise RuntimeError("Cannot set frame rate: camera is not connected")

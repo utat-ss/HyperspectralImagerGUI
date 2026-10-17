@@ -1,6 +1,6 @@
 """
 Shared abstraction so the GUI never needs to know whether it's talking
-to the Thorlabs CS135MUN or the FLIR Tau SWIR rig. Same pattern as the
+to the Thorlabs linescan camera or the Basler RGB camera. Same pattern as the
 hyperspectral demonstrator's CameraInterface.
 """
 
@@ -82,19 +82,11 @@ class CameraInterface(ABC):
 
     def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
         """
-        Optional. Request a frame rate in frames per second.
+        Optional, same contract as set_gain(): returns the rate actually
+        held (possibly clamped), or None for no frame rate control.
 
-        Same contract as set_gain(): returns the frame rate the camera
-        actually holds after the attempt (which may be clamped -- see
-        get_frame_rate_range_hz()), or None if this backend has no frame
-        rate control at all, in which case nothing was changed. The
-        default implementation is the "no frame rate control" case.
-
-        Note this is the *requested* rate, not the achieved one. Exposure
-        time places a hard ceiling on frame rate that the camera will
-        enforce regardless of what is requested here, so a caller that
-        needs to know what it is really getting must measure delivered
-        frames rather than trust this value.
+        This is the *requested* rate. Exposure caps the achieved rate
+        regardless, so measure delivered frames if you need the real one.
         """
         return None
 
@@ -107,10 +99,8 @@ class CameraInterface(ABC):
 
     def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
         """
-        Optional. Returns the (min, max) frame rate the camera will
-        accept, or None if this backend has no frame rate control -- which
-        is what a GUI reads to decide whether to show a frame rate control
-        at all, exactly as it does with get_gain_range().
+        (min, max) accepted rate, or None for no frame rate control. The
+        GUI hides the slider on None, as it does with get_gain_range().
         """
         return None
 

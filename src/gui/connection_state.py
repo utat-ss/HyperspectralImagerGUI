@@ -1,17 +1,10 @@
 """
-Connection state, and the three-lamp indicator the spec document shows.
+Connection state and the three-lamp indicator.
 
-**This lives in the GUI on purpose, not on `CameraInterface`.** All three
-states are things the caller already knows without asking a camera:
-`CONNECTING` is "a connect() call is in flight", `READY` is
-`is_connected()`, and `ERROR` is "connect() raised" -- which is also where
-the message for the connection log comes from. Putting it on the ABC would
-add contract surface every backend must implement and none could answer
-better than the code calling it.
-
-The one case the GUI genuinely cannot see is a camera that faults *after*
-connecting, and `CameraSession.stream_stalled` already covers that without
-reaching for backend-specific attributes.
+Deliberately GUI-side, not on `CameraInterface`: all three states are
+things the caller already knows (a call is in flight / `is_connected()` /
+`connect()` raised). A camera that faults *after* connecting is covered by
+`CameraSession.stream_stalled`.
 """
 
 from enum import Enum

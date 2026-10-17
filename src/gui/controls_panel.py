@@ -1,14 +1,8 @@
 """
-Camera parameter controls for the displayed device: exposure, gain, frame
-rate, and the live toggle.
+Exposure, gain, frame rate and the live toggle for the displayed camera.
 
-Device *selection* and connect/disconnect live in the Connect tab -- this
-panel only ever configures whichever camera is currently being displayed.
-
-Optional capability is decided by the contract, never by backend type:
-`get_gain_range()` or `get_frame_rate_range_hz()` returning `None` means
-"this backend has no such control", and the section hides itself on that
-basis alone. That is the mechanism that replaces an isinstance check.
+A section hides itself when its `get_*_range()` returns `None`, which is
+how optional capability is handled instead of an isinstance check.
 """
 
 from typing import Optional

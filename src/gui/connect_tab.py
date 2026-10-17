@@ -1,19 +1,9 @@
 """
-The spec document's "Connect to Device" tab.
+The "Connect to Device" tab: one row per device, plus the connection log.
 
-One row per device from `camera_factory.DEVICES`, each with a Connect
-toggle, the three-lamp indicator, and a status line. Below them, the Device
-Connection Log.
-
-**Several devices may be connected at once, but only one is displayed
-live.** That is the agreed behaviour: it honours the mockup's checkboxes
-(you can hold both bands open without reconnecting to switch) while keeping
-one camera's worth of per-frame work in the display path, which the >= 10
-fps requirement depends on. The "Display" radio picks which connected
-device feeds the live viewer.
-
-The tab emits intent and renders state. It never opens a camera itself --
-`MainWindow` owns every connection lifecycle, as it always has.
+Several devices may be connected at once; the "Display" radio picks which
+one feeds the live viewer. The tab emits intent and renders state --
+`MainWindow` owns every connection.
 """
 
 from typing import Dict, Optional
@@ -43,7 +33,6 @@ class _DeviceRow:
     def __init__(self, device: Device):
         self.device = device
         self.label = QLabel(device.label)
-        self.band = QLabel(device.band or "—")
         self.connect_button = QPushButton("Connect")
         self.connect_button.setCheckable(True)
         self.display_radio = QRadioButton("Display")
@@ -90,11 +79,10 @@ class ConnectTab(QWidget):
             self._display_group.addButton(row.display_radio)
 
             grid.addWidget(row.label, index, 0)
-            grid.addWidget(row.band, index, 1)
-            grid.addWidget(row.connect_button, index, 2)
-            grid.addWidget(row.display_radio, index, 3)
-            grid.addWidget(row.indicator, index, 4)
-            grid.addWidget(row.status, index, 5)
+            grid.addWidget(row.connect_button, index, 1)
+            grid.addWidget(row.display_radio, index, 2)
+            grid.addWidget(row.indicator, index, 3)
+            grid.addWidget(row.status, index, 4)
             self._rows[device.kind] = row
 
         log_group = QGroupBox("Device Connection Log")

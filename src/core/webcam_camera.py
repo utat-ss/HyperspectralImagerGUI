@@ -192,14 +192,9 @@ class WebcamCamera(CameraInterface):
 
     def _probe_frame_rate_range(self) -> Optional[Tuple[float, float]]:
         """
-        Same probe-don't-trust approach as _probe_gain_range(): UVC drivers
-        routinely accept a CAP_PROP_FPS write and ignore it, and OpenCV has
-        no capability query to ask. Nudge it, see whether the read-back
-        moves, restore.
-
-        A device reporting 0 fps is also treated as unsupported -- some
-        drivers return 0 rather than a real value, and advertising a range
-        whose current value is outside it would break the GUI's slider.
+        Probe, don't trust: UVC drivers accept a CAP_PROP_FPS write and
+        ignore it, and OpenCV has no capability query. Nudge, check the
+        read-back moved, restore. A reported 0 fps counts as unsupported.
         """
         baseline = self._cap.get(cv2.CAP_PROP_FPS)
         if baseline <= 0:
