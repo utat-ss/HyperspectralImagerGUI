@@ -1,6 +1,6 @@
 """
 Shared abstraction so the GUI never needs to know whether it's talking
-to the Thorlabs CS135MUN or the FLIR Tau SWIR rig. Same pattern as the
+to the Thorlabs linescan camera or the Basler RGB camera. Same pattern as the
 hyperspectral demonstrator's CameraInterface.
 """
 
@@ -77,6 +77,30 @@ class CameraInterface(ABC):
         """
         Optional. Returns the (min, max) gain the camera will accept, or
         None if this backend has no gain control.
+        """
+        return None
+
+    def set_frame_rate_hz(self, frame_rate_hz: float) -> Optional[float]:
+        """
+        Optional, same contract as set_gain(): returns the rate actually
+        held (possibly clamped), or None for no frame rate control.
+
+        This is the *requested* rate. Exposure caps the achieved rate
+        regardless, so measure delivered frames if you need the real one.
+        """
+        return None
+
+    def get_frame_rate_hz(self) -> Optional[float]:
+        """
+        Optional counterpart to set_frame_rate_hz(). Returns None if this
+        backend has no frame rate control.
+        """
+        return None
+
+    def get_frame_rate_range_hz(self) -> Optional[Tuple[float, float]]:
+        """
+        (min, max) accepted rate, or None for no frame rate control. The
+        GUI hides the slider on None, as it does with get_gain_range().
         """
         return None
 
