@@ -69,6 +69,18 @@ if __name__ == "__main__":
         result is input_data,
     )
 
+    print("--- pipeline display ---")
+
+    pipeline = ProcessingPipeline([
+        AddOneOperation(),
+        DoubleOperation(),
+    ])
+
+    check_true(
+        "pipeline displays indexed operations",
+        str(pipeline) == "0: AddOneOperation\n1: DoubleOperation",
+    )
+
     print("--- dynamic configuration ---")
 
     pipeline = ProcessingPipeline()
@@ -133,6 +145,62 @@ if __name__ == "__main__":
         "reordering operations",
         np.array_equal(result.array, np.array([3, 5, 7])),
     )
+
+
+    print("--- invalid removal indices ---")
+
+    pipeline = ProcessingPipeline([
+        AddOneOperation(),
+        DoubleOperation(),
+    ])
+
+    for index in [-1, -100, 2, 100]:
+        try:
+            pipeline.remove_operation(index)
+            check_true(f"reject invalid removal index {index}", False)
+        except IndexError:
+            check_true(f"reject invalid removal index {index}", True)
+
+    check_true(
+        "invalid removal does not modify pipeline",
+        str(pipeline) == "0: AddOneOperation\n1: DoubleOperation",
+    )
+
+
+    print("--- invalid move indices ---")
+
+    pipeline = ProcessingPipeline([
+        AddOneOperation(),
+        DoubleOperation(),
+    ])
+
+    invalid_moves = [
+        (-1, 0),
+        (2, 0),
+        (0, -1),
+        (0, 2),
+        (100, 0),
+        (0, 100),
+    ]
+
+    for old_index, new_index in invalid_moves:
+        try:
+            pipeline.move_operation(old_index, new_index)
+            check_true(
+                f"reject invalid move ({old_index}, {new_index})",
+                False,
+            )
+        except IndexError:
+            check_true(
+                f"reject invalid move ({old_index}, {new_index})",
+                True,
+            )
+
+    check_true(
+        "invalid moves do not modify pipeline",
+        str(pipeline) == "0: AddOneOperation\n1: DoubleOperation",
+    )
+
 
     if _failures:
         sys.exit(
